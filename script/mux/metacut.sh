@@ -7,12 +7,19 @@ fi
 
 . /opt/muos/script/var/func.sh
 
-SCHEME="/run/muos/storage/theme/active/scheme/default.txt"
-METACUT=$(PARSE_INI "$SCHEME" "meta" "META_CUT")
+# Define base directory and resolution
+ACTIVE_DIR="/run/muos/storage/theme/active"
+DEVICE_RES="$(GET_VAR "device" "mux/width")x$(GET_VAR "device" "mux/height")"
 
-if [ -z "$METACUT" ]; then
-	METACUT=40
-fi
+# Determine SCHEME based on file availability
+DIR="$ACTIVE_DIR/$DEVICE_RES"
+[ ! -d "$DIR" ] && DIR="$ACTIVE_DIR"
+
+SCHEME="$DIR/scheme/muxplore.txt"
+[ ! -f "$SCHEME" ] && SCHEME="$DIR/scheme/default.txt"
+
+METACUT=$(PARSE_INI "$SCHEME" "meta" "META_CUT")
+[ -z "$METACUT" ] && METACUT=40
 
 awk -v meta_cut="$METACUT" '
 BEGIN { RS = " "; ORS = ""; }

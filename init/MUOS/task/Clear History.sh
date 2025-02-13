@@ -1,4 +1,6 @@
 #!/bin/sh
+# HELP: Clear History
+# ICON: clear
 
 . /opt/muos/script/var/func.sh
 

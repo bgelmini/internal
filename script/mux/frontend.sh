@@ -1,311 +1,330 @@
 #!/bin/sh
 
+case ":$LD_LIBRARY_PATH:" in
+	*":/opt/muos/extra/lib:"*) ;;
+	*) export LD_LIBRARY_PATH="/opt/muos/extra/lib:$LD_LIBRARY_PATH" ;;
+esac
+
 . /opt/muos/script/var/func.sh
-. /opt/muos/script/mux/close_game.sh
 
-# Reset the dpad switch and LED control - This can be modified to device specifics later!
-echo 0 >"/sys/class/power_supply/axp2202-battery/nds_pwrkey" 1>&2
-/opt/muos/device/rg40xx-h/script/led_control.sh 1 0 0 0 0 0 0 0
+if [ "$(GET_VAR device led/rgb)" -eq 1 ]; then
+	RGBCONF_SCRIPT="/run/muos/storage/theme/active/rgb/rgbconf.sh"
+	if [ -f "$RGBCONF_SCRIPT" ]; then
+		"$RGBCONF_SCRIPT"
+	else
+		/opt/muos/device/current/script/led_control.sh 1 0 0 0 0 0 0 0
+	fi
+fi
 
-/opt/muos/device/"$(GET_VAR "device" "board/name")"/input/combo/audio.sh I
-/opt/muos/device/"$(GET_VAR "device" "board/name")"/input/combo/bright.sh I
+/opt/muos/device/current/input/combo/audio.sh I
+/opt/muos/device/current/input/combo/bright.sh I
+
+DEVICE_BOARD="$(GET_VAR "device" "board/name")"
 
 ACT_GO=/tmp/act_go
 APP_GO=/tmp/app_go
 ASS_GO=/tmp/ass_go
+GOV_GO=/tmp/gov_go
+GVR_GO=/tmp/gvr_go
+IDX_GO=/tmp/idx_go
+PIK_GO=/tmp/pik_go
 ROM_GO=/tmp/rom_go
+RES_GO=/tmp/res_go
 
 EX_CARD=/tmp/explore_card
+EX_NAME=/tmp/explore_name
+EX_DIR=/tmp/explore_dir
 
-MUX_RELOAD=/tmp/mux_reload
+CL_DIR=/tmp/collection_dir
+CL_AMW=/tmp/add_mode_work
+
 MUX_AUTH=/tmp/mux_auth
 
-GET_VAR "global" "settings/general/startup" >$ACT_GO
+DEF_ACT=$(GET_VAR "global" "settings/general/startup")
+printf '%s\n' "$DEF_ACT" >$ACT_GO
+if [ "$DEF_ACT" = "explore" ]; then printf '%s\n' "explore_alt" >$ACT_GO; fi
+
 echo "root" >$EX_CARD
 
-KILL_BGM() {
-	if pgrep -f "playbgm.sh" >/dev/null; then
-		killall -q "playbgm.sh" "mpg123"
-	fi
-}
-
-LOGGER "$0" "FRONTEND" "Waiting for mount: $(GET_VAR "device" "storage/rom/mount")"
-while true; do
-	if mount | grep -q "$(GET_VAR "device" "storage/rom/mount")"; then
-		break
-	fi
-	sleep 0.25
-done
-
 if [ "$(GET_VAR "global" "settings/advanced/random_theme")" -eq 1 ]; then
-	LOGGER "$0" "FRONTEND" "Changing to a random theme"
-	/opt/muos/script/mux/theme.sh "?R"
+	LOG_INFO "$0" 0 "FRONTEND" "Changing to a random theme"
+	/opt/muos/script/package/theme.sh install "?R"
 fi
 
-LAST_PLAY="/opt/muos/config/lastplay.txt"
+LAST_PLAY=$(cat "/opt/muos/config/lastplay.txt")
+LAST_INDEX=0
 
-LOGGER "$0" "FRONTEND" "Checking for last or resume startup"
+LOG_INFO "$0" 0 "FRONTEND" "Setting default CPU governor"
+DEF_GOV=$(GET_VAR "device" "cpu/default")
+printf '%s\n' "$DEF_GOV" >/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+if [ "$DEF_GOV" = ondemand ]; then
+	GET_VAR "device" "cpu/sampling_rate_default" >"$(GET_VAR "device" "cpu/sampling_rate")"
+	GET_VAR "device" "cpu/up_threshold_default" >"$(GET_VAR "device" "cpu/up_threshold")"
+	GET_VAR "device" "cpu/sampling_down_factor_default" >"$(GET_VAR "device" "cpu/sampling_down_factor")"
+	GET_VAR "device" "cpu/io_is_busy_default" >"$(GET_VAR "device" "cpu/io_is_busy")"
+fi
+
+LOG_INFO "$0" 0 "FRONTEND" "Checking for last or resume startup"
 if [ "$(GET_VAR "global" "settings/general/startup")" = "last" ] || [ "$(GET_VAR "global" "settings/general/startup")" = "resume" ]; then
-	if [ -s "$LAST_PLAY" ]; then
-		LOGGER "$0" "FRONTEND" "Checking for network and retrowait"
+	GO_LAST_BOOT=1
+
+	if [ -n "$LAST_PLAY" ]; then
+		LOG_INFO "$0" 0 "FRONTEND" "Checking for network and retrowait"
+
 		if [ "$(GET_VAR "global" "network/enabled")" -eq 1 ] && [ "$(GET_VAR "global" "settings/advanced/retrowait")" -eq 1 ]; then
 			NET_START="/tmp/net_start"
 			OIP=0
-			while true; do
+
+			while :; do
 				NW_MSG=$(printf "Waiting for network to connect... (%s)\n\nPress START to continue loading\nPress SELECT to go to main menu" "$OIP")
-				/opt/muos/extra/muxstart "$NW_MSG"
+				/opt/muos/extra/muxstart 0 "$NW_MSG"
 				OIP=$((OIP + 1))
+
 				if [ "$(cat "$(GET_VAR "device" "network/state")")" = "up" ]; then
-					LOGGER "$0" "FRONTEND" "Network connected"
-					/opt/muos/extra/muxstart "Network connected... Booting content!"
+					LOG_SUCCESS "$0" 0 "FRONTEND" "Network connected"
+					/opt/muos/extra/muxstart 0 "Network connected"
+
+					PIP=0
+					while ! ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; do
+						PIP=$((PIP + 1))
+						LOG_INFO "$0" 0 "FRONTEND" "Verifying connectivity..."
+						/opt/muos/extra/muxstart 0 "Verifying connectivity... (%s)" "$PIP"
+						sleep 1
+					done
+
+					LOG_SUCCESS "$0" 0 "FRONTEND" "Connectivity verified!"
+					/opt/muos/extra/muxstart 0 "Connectivity verified! Booting content!"
+
+					GO_LAST_BOOT=1
 					break
 				fi
+
 				if [ "$(cat "$NET_START")" = "ignore" ]; then
-					LOGGER "$0" "FRONTEND" "Ignoring network connection"
-					/opt/muos/extra/muxstart "Ignoring network connection... Booting content!"
+					LOG_SUCCESS "$0" 0 "FRONTEND" "Ignoring network connection"
+					/opt/muos/extra/muxstart 0 "Ignoring network connection... Booting content!"
+
+					GO_LAST_BOOT=1
 					break
 				fi
+
 				if [ "$(cat "$NET_START")" = "menu" ]; then
-					LOGGER "$0" "FRONTEND" "Booting to main menu"
-					/opt/muos/extra/muxstart "Booting to main menu!"
+					LOG_SUCCESS "$0" 0 "FRONTEND" "Booting to main menu"
+					/opt/muos/extra/muxstart 0 "Booting to main menu!"
+
+					GO_LAST_BOOT=0
 					break
 				fi
+
 				sleep 1
 			done
 		fi
-		if [ "$(cat "$(GET_VAR "device" "network/state")")" = "up" ] || [ "$(cat "$NET_START")" = "ignore" ] || [ "$(GET_VAR "global" "network/enabled")" -eq 0 ] || [ "$(GET_VAR "global" "settings/advanced/retrowait")" -eq 0 ]; then
-			LOGGER "$0" "FRONTEND" "Booting to last launched content"
+
+		if [ $GO_LAST_BOOT -eq 1 ]; then
+			LOG_INFO "$0" 0 "FRONTEND" "Booting to last launched content"
 			cat "$LAST_PLAY" >"$ROM_GO"
-			/opt/muos/script/mux/launch.sh
+
+			CONTENT_GOV="$(basename "$LAST_PLAY" .cfg).gov"
+			if [ -e "$CONTENT_GOV" ]; then
+				printf "%s" "$(cat "$CONTENT_GOV")" >$GVR_GO
+			else
+				CONTENT_GOV="$(dirname "$LAST_PLAY")/core.gov"
+				if [ -e "$CONTENT_GOV" ]; then
+					printf "%s" "$(cat "$CONTENT_GOV")" >$GVR_GO
+				else
+					LOG_INFO "$0" 0 "FRONTEND" "No governor found for launched content"
+				fi
+			fi
+
+			/opt/muos/script/mux/launch.sh last
 		fi
 	fi
+
 	echo launcher >$ACT_GO
 fi
 
-/opt/muos/script/mux/golden.sh &
+LOG_INFO "$0" 0 "FRONTEND" "Starting frontend launcher"
+cp /opt/muos/*.log "$(GET_VAR "device" "storage/rom/mount")/MUOS/log/boot/." &
 
-LOGGER "$0" "FRONTEND" "Starting frontend launcher"
-while true; do
-	# Background Music
-	if [ "$(GET_VAR "global" "settings/general/bgm")" -eq 1 ]; then
-		if ! pgrep -f "playbgm.sh" >/dev/null; then
-			/opt/muos/script/mux/playbgm.sh &
-		fi
-	else
-		KILL_BGM
+PROCESS_CONTENT_ACTION() {
+	ACTION="$1"
+	MODULE="$2"
+
+	[ ! -s "$ACTION" ] && return
+
+	{
+		IFS= read -r ROM_NAME
+		IFS= read -r ROM_DIR
+		IFS= read -r ROM_SYS
+		IFS= read -r FORCED_FLAG
+	} <"$ACTION"
+
+	rm "$ACTION"
+	echo "$MODULE" >"$ACT_GO"
+
+	[ "$FORCED_FLAG" -eq 1 ] && echo "option" >"$ACT_GO"
+}
+
+LAST_INDEX_CHECK() {
+	LAST_INDEX=0
+	if [ -s "$IDX_GO" ] && [ ! -s "$CL_AMW" ]; then
+		read -r LAST_INDEX <"$IDX_GO"
+		LAST_INDEX=${LAST_INDEX:-0}
+		rm -f "$IDX_GO"
 	fi
+}
 
-	# Core Association
-	if [ -s "$ASS_GO" ]; then
-		ROM_NAME=$(sed -n '1p' "$ASS_GO")
-		ROM_DIR=$(sed -n '2p' "$ASS_GO")
-		ROM_SYS=$(sed -n '3p' "$ASS_GO")
+while :; do
+	CHECK_BGM ignore &
+	pkill -9 -f "gptokeyb" &
 
-		rm "$ASS_GO"
-		echo "assign" >$ACT_GO
-	fi
+	# Reset DPAD<>ANALOGUE switch for H700 devices
+	[ "$DEVICE_BOARD" = "rg*" ] && echo 0 >"/sys/class/power_supply/axp2202-battery/nds_pwrkey"
+
+	# Process content association and governor actions
+	PROCESS_CONTENT_ACTION "$ASS_GO" "assign"
+	PROCESS_CONTENT_ACTION "$GOV_GO" "governor"
 
 	# Content Loader
-	if [ -s "$ROM_GO" ]; then
-		/opt/muos/script/mux/launch.sh
-	fi
+	[ -s "$ROM_GO" ] && /opt/muos/script/mux/launch.sh
 
-	# Application Loader
-	if [ -s "$APP_GO" ]; then
-		. "$(cat $APP_GO)"
-		rm "$APP_GO"
-		continue
-	fi
+	[ -s "$ACT_GO" ] && {
+		IFS= read -r ACTION <"$ACT_GO"
 
-	# Get Last ROM Index
-	if [ "$(cat $ACT_GO)" = explore ] || [ "$(cat $ACT_GO)" = favourite ] || [ "$(cat $ACT_GO)" = history ]; then
-		if [ -s "/tmp/idx_go" ]; then
-			LAST_INDEX_ROM=$(cat "/tmp/idx_go")
-			rm "/tmp/idx_go"
-		else
-			LAST_INDEX_ROM=0
-		fi
-	fi
-
-	# Kill PortMaster GPTOKEYB just in case!
-	killall -q gptokeyb.armhf gptokeyb.aarch64 &
-
-	# muX Programs
-	if [ -s "$ACT_GO" ]; then
-		case "$(cat $ACT_GO)" in
+		case "$ACTION" in
 			"launcher")
 				touch /tmp/pdi_go
-				echo launcher >$ACT_GO
-				if [ -s "$MUX_AUTH" ]; then
-					rm "$MUX_AUTH"
+				[ -s "$MUX_AUTH" ] && rm "$MUX_AUTH"
+				EXEC_MUX "launcher" "muxlaunch"
+				;;
+
+			"option") EXEC_MUX "explore" "muxoption" -c "$ROM_NAME" -d "$ROM_DIR" -s "$ROM_SYS" ;;
+			"assign") EXEC_MUX "option" "muxassign" -a 0 -c "$ROM_NAME" -d "$ROM_DIR" -s "$ROM_SYS" ;;
+			"governor") EXEC_MUX "option" "muxgov" -a 0 -c "$ROM_NAME" -d "$ROM_DIR" -s "$ROM_SYS" ;;
+			"search")
+				[ -s "$EX_DIR" ] && IFS= read -r EX_DIR_CONTENT <"$EX_DIR"
+				EXEC_MUX "option" "muxsearch" -d "$EX_DIR_CONTENT"
+				if [ -s "$RES_GO" ]; then
+					IFS= read -r RES_CONTENT <"$RES_GO"
+					printf "%s" "${RES_CONTENT##*/}" >"$EX_NAME"
+					printf "%s" "${RES_CONTENT%/*}" >"$EX_DIR"
+					printf "%s" "$(echo "$RES_CONTENT" | sed 's|.*/\([^/]*\)/ROMS.*|\1|')" >"$EX_CARD"
+					EXEC_MUX "option" "muxplore" -i 0 -d "$(cat "$EX_DIR")"
 				fi
-				SET_VAR "system" "foreground_process" "muxlaunch"
-				nice --20 /opt/muos/extra/muxlaunch
 				;;
-			"assign")
-				echo explore >$ACT_GO
-				echo "$LAST_INDEX_SYS" >/tmp/lisys
-				SET_VAR "system" "foreground_process" "muxassign"
-				nice --20 /opt/muos/extra/muxassign -a 0 -c "$ROM_NAME" -d "$ROM_DIR" -s "$ROM_SYS"
-				;;
-			"explore")
-				MODULE=$(sed -n '1p' "$EX_CARD")
-				echo launcher >$ACT_GO
-				echo "$LAST_INDEX_SYS" >/tmp/lisys
-				SET_VAR "system" "foreground_process" "muxassign"
-				nice --20 /opt/muos/extra/muxassign -a 1 -c "$ROM_NAME" -d "$(cat /tmp/explore_dir)" -s none
-				SET_VAR "system" "foreground_process" "muxplore"
-				nice --20 /opt/muos/extra/muxplore -i "$LAST_INDEX_ROM" -m "$MODULE"
-				;;
+
 			"app")
-				echo launcher >$ACT_GO
 				if [ "$(GET_VAR "global" "settings/advanced/lock")" -eq 1 ]; then
-					SET_VAR "system" "foreground_process" "muxpass"
-					nice --20 /opt/muos/extra/muxpass -t launch
-					if [ "$?" = 1 ]; then
-						SET_VAR "system" "foreground_process" "muxapp"
-						nice --20 /opt/muos/extra/muxapp
-					fi
+					EXEC_MUX "launcher" "muxpass" -t launch
+					[ "$?" -eq 1 ] && EXEC_MUX "launcher" "muxapp"
 				else
-					SET_VAR "system" "foreground_process" "muxapp"
-					nice --20 /opt/muos/extra/muxapp
+					EXEC_MUX "launcher" "muxapp"
+					if [ -s "$APP_GO" ]; then
+						IFS= read -r RUN_APP <"$APP_GO"
+						rm "$APP_GO"
+						case "$RUN_APP" in
+							*"Archive Manager"*)
+								echo archive >$ACT_GO
+								;;
+							*"Task Toolkit"*)
+								echo task >$ACT_GO
+								;;
+							*)
+								STOP_BGM
+								"$RUN_APP"
+								;;
+						esac
+					fi
 				fi
 				;;
+
 			"config")
-				echo launcher >$ACT_GO
 				if [ "$(GET_VAR "global" "settings/advanced/lock")" -eq 1 ]; then
 					if [ -e "$MUX_AUTH" ]; then
-						SET_VAR "system" "foreground_process" "muxconfig"
-						nice --20 /opt/muos/extra/muxconfig
+						EXEC_MUX "launcher" "muxconfig"
 					else
-						SET_VAR "system" "foreground_process" "muxpass"
-						nice --20 /opt/muos/extra/muxpass -t setting
-						if [ "$?" = 1 ]; then
-							SET_VAR "system" "foreground_process" "muxconfig"
-							nice --20 /opt/muos/extra/muxconfig
+						EXEC_MUX "muxpass" -t setting
+						if [ "$?" -eq 1 ]; then
+							EXEC_MUX "launcher" "muxconfig"
 							touch "$MUX_AUTH"
 						fi
 					fi
 				else
-					SET_VAR "system" "foreground_process" "muxconfig"
-					nice --20 /opt/muos/extra/muxconfig
+					EXEC_MUX "launcher" "muxconfig"
 				fi
 				;;
-			"info")
-				echo launcher >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxinfo"
-				nice --20 /opt/muos/extra/muxinfo
-				;;
-			"tweakgen")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxtweakgen"
-				nice --20 /opt/muos/extra/muxtweakgen
-				;;
-			"tweakadv")
-				echo tweakgen >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxtweakadv"
-				nice --20 /opt/muos/extra/muxtweakadv
-				;;
-			"theme")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxtheme"
-				nice --20 /opt/muos/extra/muxtheme
-				;;
-			"visual")
-				echo tweakgen >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxvisual"
-				nice --20 /opt/muos/extra/muxvisual
-				;;
-			"storage")
-				echo tweakgen >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxstorage"
-				nice --20 /opt/muos/extra/muxstorage
-				;;
-			"net_profile")
-				echo network >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxnetprofile"
-				nice --20 /opt/muos/extra/muxnetprofile
-				;;
-			"net_scan")
-				echo network >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxnetscan"
-				nice --20 /opt/muos/extra/muxnetscan
-				;;
-			"network")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxnetwork"
-				nice --20 /opt/muos/extra/muxnetwork
-				;;
-			"webserv")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxwebserv"
-				nice --20 /opt/muos/extra/muxwebserv
-				;;
-			"rtc")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxrtc"
-				nice --20 /opt/muos/extra/muxrtc
-				;;
-			"language")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxlanguage"
-				nice --20 /opt/muos/extra/muxlanguage
-				;;
-			"timezone")
-				echo rtc >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxtimezone"
-				nice --20 /opt/muos/extra/muxtimezone
-				;;
-			"tester")
-				echo info >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxtester"
-				nice --20 /opt/muos/extra/muxtester
-				;;
-			"device")
-				echo config >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxdevice"
-				nice --20 /opt/muos/extra/muxdevice
-				;;
-			"system")
-				echo info >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxsysinfo"
-				nice --20 /opt/muos/extra/muxsysinfo
-				;;
-			"favourite")
-				find "/run/muos/storage/info/favourite" -maxdepth 1 -type f -size 0 -delete
-				echo launcher >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxplore"
-				nice --20 /opt/muos/extra/muxplore -i "$LAST_INDEX_ROM" -m favourite
-				if [ -s "$MUX_RELOAD" ]; then
-					if [ "$(cat $MUX_RELOAD)" -eq 1 ]; then
-						echo favourite >$ACT_GO
-					fi
-					rm "$MUX_RELOAD"
+
+			"hdmi")
+				EXEC_MUX "tweakgen" "muxhdmi"
+				if [ "$(GET_VAR "global" "settings/hdmi/enabled")" -eq 1 ]; then
+					/opt/muos/device/current/script/hdmi.sh start
+				else
+					/opt/muos/device/current/script/hdmi.sh stop
 				fi
 				;;
+
+			"picker")
+				[ -s "$PIK_GO" ] && IFS= read -r PIK_CONTENT <"$PIK_GO"
+				EXPLORE_DIR=""
+				[ -s "$EX_DIR" ] && IFS= read -r EXPLORE_DIR <"$EX_DIR"
+				EXEC_MUX "custom" "muxpicker" -m "$PIK_CONTENT" -d "$EXPLORE_DIR"
+				;;
+
+			"explore")
+				LAST_INDEX_CHECK
+				[ -s "$EX_DIR" ] && IFS= read -r EXPLORE_DIR <"$EX_DIR"
+				EXEC_MUX "launcher" "muxassign" -a 1 -c "$ROM_NAME" -d "$EXPLORE_DIR" -s none
+				EXEC_MUX "launcher" "muxgov" -a 1 -c "$ROM_NAME" -d "$EXPLORE_DIR" -s none
+				EXEC_MUX "launcher" "muxplore" -d "$EXPLORE_DIR" -i "$LAST_INDEX"
+				;;
+
+			"collection")
+				LAST_INDEX_CHECK
+				ADD_MODE=0
+				if [ -s "$CL_AMW" ]; then
+					ADD_MODE=1
+					LAST_INDEX=0
+				fi
+				[ -s "$CL_DIR" ] && IFS= read -r COLLECTION_DIR <"$CL_DIR"
+				find "/run/muos/storage/info/collection" -maxdepth 2 -type f -size 0 -delete
+				EXEC_MUX "launcher" "muxcollect" -a "$ADD_MODE" -d "$COLLECTION_DIR" -i "$LAST_INDEX"
+				;;
+
 			"history")
+				LAST_INDEX_CHECK
 				find "/run/muos/storage/info/history" -maxdepth 1 -type f -size 0 -delete
-				echo launcher >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxplore"
-				nice --20 /opt/muos/extra/muxplore -i 0 -m history
-				if [ -s "$MUX_RELOAD" ]; then
-					if [ "$(cat $MUX_RELOAD)" -eq 1 ]; then
-						echo history >$ACT_GO
-					fi
-					rm "$MUX_RELOAD"
-				fi
+				EXEC_MUX "launcher" "muxhistory" -i "$LAST_INDEX"
 				;;
+
 			"credits")
-				echo info >$ACT_GO
-				SET_VAR "system" "foreground_process" "muxcredits"
-				nice --20 /opt/muos/extra/muxcredits
+				/opt/muos/bin/nosefart /opt/muos/media/support.nsf &
+				EXEC_MUX "info" "muxcredits"
+				pkill -9 -f "nosefart" &
 				;;
-			"reboot")
-				HALT_SYSTEM frontend reboot
-				;;
-			"shutdown")
-				HALT_SYSTEM frontend poweroff
-				;;
+
+			"info") EXEC_MUX "launcher" "muxinfo" ;;
+			"archive") EXEC_MUX "app" "muxarchive" ;;
+			"task") EXEC_MUX "app" "muxtask" ;;
+			"tweakgen") EXEC_MUX "config" "muxtweakgen" ;;
+			"custom") EXEC_MUX "config" "muxcustom" ;;
+			"network") EXEC_MUX "config" "muxnetwork" ;;
+			"language") EXEC_MUX "config" "muxlanguage" ;;
+			"webserv") EXEC_MUX "config" "muxwebserv" ;;
+			"rtc") EXEC_MUX "config" "muxrtc" ;;
+			"storage") EXEC_MUX "config" "muxstorage" ;;
+			"power") EXEC_MUX "tweakgen" "muxpower" ;;
+			"tweakadv") EXEC_MUX "tweakgen" "muxtweakadv" ;;
+			"visual") EXEC_MUX "tweakgen" "muxvisual" ;;
+			"net_profile") EXEC_MUX "network" "muxnetprofile" ;;
+			"net_scan") EXEC_MUX "network" "muxnetscan" ;;
+			"timezone") EXEC_MUX "rtc" "muxtimezone" ;;
+			"tester") EXEC_MUX "info" "muxtester" ;;
+			"system") EXEC_MUX "info" "muxsysinfo" ;;
+
+			"reboot") /opt/muos/script/mux/quit.sh reboot frontend ;;
+			"shutdown") /opt/muos/script/mux/quit.sh poweroff frontend ;;
+
+			*) printf "Unknown Module: %s\n" "$ACTION" >&2 ;;
 		esac
-	fi
+	}
+
 done

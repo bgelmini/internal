@@ -2,53 +2,62 @@
 
 . /opt/muos/script/var/func.sh
 
-STORE_DEVICE=$(GET_VAR "device" "storage/sdcard/dev")$(GET_VAR "device" "storage/sdcard/sep")$(GET_VAR "device" "storage/sdcard/num")
-MOUNTED=false
+DEVICE="$(GET_VAR "device" "storage/sdcard/dev")$(GET_VAR "device" "storage/sdcard/sep")$(GET_VAR "device" "storage/sdcard/num")"
+MOUNT="$(GET_VAR "device" "storage/sdcard/mount")"
 
-mkdir "$(GET_VAR "device" "storage/sdcard/mount")"
+mkdir -p "$MOUNT"
 
-while true; do
-	if grep -m 1 "$STORE_DEVICE" /proc/partitions >/dev/null; then
-		if ! $MOUNTED; then
-			FS_TYPE=$(blkid -o value -s TYPE "/dev/$STORE_DEVICE")
+MOUNTED() {
+	[ "$(GET_VAR "device" "storage/sdcard/active")" -eq 1 ]
+}
 
-			BLK_ID4=""
-			for D in /sys/devices/platform/soc/sdc0/mmc_host/mmc0/mmc0:*; do
-				[ -d "$D" ] && BLK_ID4="${D##*/}" && break
-			done
+HAS_DEVICE() {
+	grep -q "$DEVICE" /proc/partitions
+}
 
-			if [ "$FS_TYPE" = "vfat" ]; then
-				if mount -t vfat -o rw,utf8,noatime,nofail "/dev/$STORE_DEVICE" "$(GET_VAR "device" "storage/sdcard/mount")"; then
-					SET_VAR "device" "storage/sdcard/active" "1"
-					echo noop >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/mmc1:"$BLK_ID4"/block/mmcblk1/queue/scheduler
-					echo on >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/power/control
-					MOUNTED=true
-				fi
-			elif [ "$FS_TYPE" = "exfat" ]; then
-				if mount -t exfat -o rw,utf8,noatime,nofail "/dev/$STORE_DEVICE" "$(GET_VAR "device" "storage/sdcard/mount")"; then
-					SET_VAR "device" "storage/sdcard/active" "1"
-					echo noop >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/mmc1:"$BLK_ID4"/block/mmcblk1/queue/scheduler
-					echo on >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/power/control
-					MOUNTED=true
-				fi
-			elif [ "$FS_TYPE" = "ext4" ]; then
-				if mount -t ext4 -o defaults,noatime,nofail "/dev/$STORE_DEVICE" "$(GET_VAR "device" "storage/sdcard/mount")"; then
-					SET_VAR "device" "storage/sdcard/active" "1"
-					echo noop >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/mmc1:"$BLK_ID4"/block/mmcblk1/queue/scheduler
-					echo on >/sys/devices/platform/soc/sdc2/mmc_host/mmc1/power/control
-					MOUNTED=true
-				fi
-			fi
-		fi
-	elif $MOUNTED; then
-		umount "$(GET_VAR "device" "storage/sdcard/mount")"
-		STORAGE_LOCS="bios info/catalogue info/config info/core info/favourite info/history music save screenshot theme"
-		for S_LOC in $STORAGE_LOCS; do
-			umount "/run/muos/storage/$S_LOC"
-		done
-		/opt/muos/script/var/init/storage.sh
-		SET_VAR "device" "storage/sdcard/active" "0"
-		MOUNTED=false
+MOUNT_DEVICE() {
+	FS_TYPE="$(blkid -o value -s TYPE "/dev/$DEVICE")"
+	FS_LABEL="$(blkid -o value -s LABEL "/dev/$DEVICE")"
+
+	case "$FS_TYPE" in
+		vfat | exfat) FS_OPTS=rw,utf8,noatime,nofail ;;
+		ext4) FS_OPTS=defaults,noatime,nofail ;;
+		*) return ;;
+	esac
+
+	if mount -t "$FS_TYPE" -o "$FS_OPTS" "/dev/$DEVICE" "$MOUNT"; then
+		SET_VAR "device" "storage/sdcard/active" "1"
+		SET_VAR "device" "storage/sdcard/label" "$FS_LABEL"
 	fi
+
+	if [ "$(GET_VAR "global" "settings/advanced/cardmode")" = "noop" ]; then
+		echo "noop" >"/sys/block/$(GET_VAR "device" "storage/sdcard/dev")/queue/scheduler"
+		echo "write back" >"/sys/block/$(GET_VAR "device" "storage/sdcard/dev")/queue/write_cache"
+	else
+		echo "deadline" >"/sys/block/$(GET_VAR "device" "storage/sdcard/dev")/queue/scheduler"
+		echo "write through" >"/sys/block/$(GET_VAR "device" "storage/sdcard/dev")/queue/write_cache"
+	fi
+}
+
+# Synchronously mount SD card (if media is inserted) so it's available as a
+# target of bind mounts under /run/muos/storage as soon as this script returns
+HAS_DEVICE && MOUNT_DEVICE
+
+# Asynchronously monitor insertion/eject, adjusting storage mounts as needed
+while :; do
+	# Create ROMS directory if it doesn't exist because the union calls for it
+	[ ! -d "$MOUNT/ROMS" ] && mkdir -p "$MOUNT/ROMS"
+
+	if HAS_DEVICE; then
+		if ! MOUNTED; then
+			MOUNT_DEVICE
+			/opt/muos/script/var/init/storage.sh
+		fi
+	elif MOUNTED; then
+		umount "$MOUNT"
+		SET_VAR "device" "storage/sdcard/active" "0"
+		/opt/muos/script/var/init/storage.sh
+	fi
+
 	sleep 2
 done &

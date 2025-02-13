@@ -1,4 +1,6 @@
 #!/bin/sh
+# HELP: Clear Favourites
+# ICON: clear
 
 . /opt/muos/script/var/func.sh
 

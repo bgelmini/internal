@@ -4,13 +4,20 @@
 
 NAME=$1
 CORE=$2
-ROM=$3
+FILE=${3%/}
 
-export HOME=$(GET_VAR "device" "board/home")
+LOG_INFO "$0" 0 "Content Launch" "DETAIL"
+LOG_INFO "$0" 0 "NAME" "$NAME"
+LOG_INFO "$0" 0 "CORE" "$CORE"
+LOG_INFO "$0" 0 "FILE" "$FILE"
 
-export SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
-export SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
-export SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+HOME="$(GET_VAR "device" "board/home")"
+export HOME
+
+SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
+SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+export SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
 
 SET_VAR "system" "foreground_process" "retroarch"
 
@@ -24,31 +31,29 @@ $_TITLE
 $_MESSAGE
 EOF
 	)
-	/opt/muos/extra/muxstart "$_FORM" && sleep "$3"
+	/opt/muos/extra/muxstart 0 "$_FORM" && sleep "$3"
 }
 
-ROMPATH=$(echo "$ROM" | awk -F'/' '{NF--; print}' OFS='/')
-DOUK="$ROMPATH/.Cave Story (En)/Doukutsu.exe"
+F_PATH=$(echo "$FILE" | awk -F'/' '{NF--; print}' OFS='/')
+DOUK="$F_PATH/.Cave Story (En)/Doukutsu.exe"
 
 LOGPATH="$(GET_VAR "device" "storage/rom/mount")/MUOS/log/nxe.log"
 
-RA_CONF="$(GET_VAR "device" "storage/rom/mount")/MUOS/retroarch/retroarch.cfg"
+RA_CONF=/run/muos/storage/info/config/retroarch.cfg
 
-sed -i -e '/^system_directory/d' \
-	-e '/^input_remapping_directory/d' \
-	-e '/^rgui_config_directory/d' \
-	-e '/^savefile_directory/d' \
-	-e '/^savestate_directory/d' \
-	-e '/^screenshot_directory/d' "$RA_CONF"
+# Include default button mappings from retroarch.device.cfg. (Settings
+# in the retroarch.cfg will take precedence. Modified settings will save
+# to the main retroarch.cfg, not the included retroarch.device.cfg.)
+sed -n -e '/^#include /!p' \
+	-e '$a#include "/opt/muos/device/current/control/retroarch.device.cfg"' \
+	-e '$a#include "/opt/muos/device/current/control/retroarch.resolution.cfg"' \
+	-i "$RA_CONF"
 
-{
-	echo "system_directory = \"/run/muos/storage/bios\""
-	echo "input_remapping_directory = \"/run/muos/storage/info/config/remaps\""
-	echo "rgui_config_directory = \"/run/muos/storage/info/config\""
-	echo "savefile_directory = \"/run/muos/storage/save/file\""
-	echo "savestate_directory = \"/run/muos/storage/save/state\""
-	echo "screenshot_directory = \"/run/muos/storage/screenshot\""
-} >>"$RA_CONF"
+if [ "$(GET_VAR "kiosk" "content/retroarch")" -eq 1 ] 2>/dev/null; then
+	sed -i 's/^kiosk_mode_enable = "false"$/kiosk_mode_enable = "true"/' "$RA_CONF"
+else
+	sed -i 's/^kiosk_mode_enable = "true"$/kiosk_mode_enable = "false"/' "$RA_CONF"
+fi
 
 if [ -e "$DOUK" ]; then
 	retroarch -v -c "$RA_CONF" -L "$(GET_VAR "device" "storage/rom/mount")/MUOS/core/$CORE" "$DOUK" &
@@ -82,13 +87,13 @@ else
 	fi
 
 	## Extract the zip
-	echo "Extracting $CZ_NAME to $ROMPATH" >>"$LOGPATH"
-	unzip -o "$BIOS_FOLDER$CZ_NAME" -d "$ROMPATH"
+	echo "Extracting $CZ_NAME to $F_PATH" >>"$LOGPATH"
+	unzip -o "$BIOS_FOLDER$CZ_NAME" -d "$F_PATH"
 
-	if [ -e "$ROMPATH/Cave Story (En)" ]; then
+	if [ -e "$F_PATH/Cave Story (En)" ]; then
 		echo "Hiding folder" >>"$LOGPATH"
-		mv "$ROMPATH/Cave Story (En)" "$ROMPATH/.Cave Story (En)"
-	elif [ -e "$ROMPATH/.Cave Story (En)" ]; then
+		mv "$F_PATH/Cave Story (En)" "$F_PATH/.Cave Story (En)"
+	elif [ -e "$F_PATH/.Cave Story (En)" ]; then
 		echo "Already hidden" >>"$LOGPATH"
 	else
 		echo "Did extraction fail?" >>"$LOGPATH"
@@ -99,3 +104,4 @@ else
 fi
 
 wait $RA_PID
+unset SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED

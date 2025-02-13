@@ -33,7 +33,7 @@ KILL_AND_WAIT() {
 	killall5 "-$SIGNAL" "$@"
 
 	printf 'Waiting for processes to terminate: '
-	for _ in $(seq "$((TIMEOUT_SEC*100/25))"); do
+	for _ in $(seq "$((TIMEOUT_SEC * 100 / 25))"); do
 		# Minimum 250ms delay for things to settle a bit.
 		sleep .25
 		if ! PROCS="$(FIND_PROCS "$@")"; then
@@ -110,9 +110,9 @@ shift 1
 	# 10s, SIGTERM them, then wait 5s more before resorting to SIGKILL.
 	RUN_WITH_TIMEOUT 10 5 'shutdown scripts' /etc/init.d/rcK
 
-	# Send SIGTERM to remaining processes. Wait up to 5s before mopping up
+	# Send SIGTERM to remaining processes. Wait up to 10s before mopping up
 	# with SIGKILL, then wait up to 1s more for everything to die.
-	if ! KILL_AND_WAIT 5 TERM "$@"; then
+	if ! KILL_AND_WAIT 10 TERM "$@"; then
 		KILL_AND_WAIT 1 KILL "$@"
 	fi
 
@@ -132,6 +132,7 @@ swapoff -a
 
 # Cleanly unmount filesystems to avoid fsck/chkdsk errors.
 printf 'Unmounting filesystems...\n'
+/opt/muos/script/mount/union.sh stop
 umount -ar
 
 # Actually halt/shut down/reboot the system. The -f arg makes the command

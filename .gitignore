@@ -1,3 +1,6 @@
 # Dumb macOS files
 .DS_Store
 ._*
+
+# Ignore Portmaster libraries
+init/MUOS/PortMaster/libs/

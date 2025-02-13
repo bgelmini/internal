@@ -9,7 +9,7 @@ LOG_DATE="$(date +'[%Y-%m-%d]')"
 # Move control.ini for ppsspp standalone
 CONTROL_INI="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/ppsspp/.config/ppsspp/PSP/SYSTEM/controls.ini"
 if [ ! -f "$CONTROL_INI" ]; then
-	cp "$DEVICE_CONTROL_DIR/controls.ini" "$CONTROL_INI"
+	cp "$DEVICE_CONTROL_DIR/ppsspp_controls.ini" "$CONTROL_INI"
 fi
 
 # Move mupen64plus-rice.cfg for external mupen64plus
@@ -24,20 +24,33 @@ if [ ! -f "$MP64GL64" ]; then
 	cp "$DEVICE_CONTROL_DIR/mupen64plus-gl64.cfg" "$MP64GL64"
 fi
 
-# Move RetroArch configurations
-RA_CONF="$(GET_VAR "device" "storage/rom/mount")/MUOS/retroarch/retroarch.cfg"
+# Move RetroArch configuration
+RA_CONF=/run/muos/storage/info/config/retroarch.cfg
 if [ ! -f "$RA_CONF" ]; then
-	cp "$DEVICE_CONTROL_DIR/retroarch.cfg" "$RA_CONF"
+	cp /run/muos/storage/retroarch/retroarch.default.cfg "$RA_CONF"
 fi
 
-# Move DraStic Steward config
-DRSTU_JSON="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic-steward/resources/settings.json"
-if [ ! -f "$DRSTU_JSON" ]; then
-	cp -f "$DEVICE_CONTROL_DIR/drastic-steward.json" "$DRSTU_JSON"
+# Move Drastic trngaje config
+DRASTIC_T_JSON="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic-trngaje/resources/settings.json"
+DRASTIC_T_CFG="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic-trngaje/config/drastic.cfg"
+if [ ! -f "$DRASTIC_T_JSON" ]; then
+	cp -f "$DEVICE_CONTROL_DIR/drastic-trngaje/settings.json" "$DRASTIC_T_JSON"
+fi
+if [ ! -f "$DRASTIC_T_CFG" ]; then
+	cp -f "$DEVICE_CONTROL_DIR/drastic-trngaje/drastic.cfg" "$DRASTIC_T_CFG"
 fi
 
-# Move DraStic configuration
-cp -f "$DEVICE_CONTROL_DIR/drastic.cfg" "$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic/config/drastic.cfg"
+# Move DraStic Legacy config
+DRASTIC_CFG="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic-legacy/config/drastic.cfg"
+if [ ! -f "$DRASTIC_CFG" ]; then
+	cp -f "$DEVICE_CONTROL_DIR/drastic.cfg" "$DRASTIC_CFG"
+fi
+
+# Move YabaSanshiro config
+YABASANSHIRO="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/yabasanshiro/.emulationstation/es_temporaryinput.cfg"
+if [ ! -f "$YABASANSHIRO" ]; then
+	cp "$DEVICE_CONTROL_DIR/yabasanshiro/es_temporaryinput.cfg" "$YABASANSHIRO"
+fi
 
 # Move OpenBOR config
 for file in "$DEVICE_CONTROL_DIR/openbor/"*.ini; do
@@ -47,9 +60,9 @@ for file in "$DEVICE_CONTROL_DIR/openbor/"*.ini; do
 done
 
 # Define Playstation remap paths
-DUCK_RMP="$(GET_VAR "device" "storage/rom/mount")/MUOS/info/config/remaps/DuckStation/DuckStation.rmp"
-PCSX_RMP="$(GET_VAR "device" "storage/rom/mount")/MUOS/info/config/remaps/PCSX-ReARMed/PCSX-ReARMed.rmp"
-SWAN_RMP="$(GET_VAR "device" "storage/rom/mount")/MUOS/info/config/remaps/SwanStation/SwanStation.rmp"
+DUCK_RMP=/run/muos/storage/info/config/remaps/DuckStation/DuckStation.rmp
+PCSX_RMP=/run/muos/storage/info/config/remaps/PCSX-ReARMed/PCSX-ReARMed.rmp
+SWAN_RMP=/run/muos/storage/info/config/remaps/SwanStation/SwanStation.rmp
 
 # Check for DuckStation remap
 DUCK_DIR=$(dirname "$DUCK_RMP")
@@ -127,4 +140,32 @@ EOF
 	echo "$LOG_DATE File $SWAN_RMP created. DualShock Enabled for SwanStation" >>"$RMP_LOG"
 else
 	echo "$LOG_DATE No file created. Remap existed at $SWAN_RMP" >>"$RMP_LOG"
+fi
+
+# Set device-specific overlays
+# Automatically process all files in the ra-config directory if it exists
+
+RA_CONFIG_DIR="/run/muos/storage/info/config"
+DEVICE_CONFIG_DIR="$DEVICE_CONTROL_DIR/ra-config"
+
+if [ -d "$DEVICE_CONFIG_DIR" ]; then
+	for DEVICE_CFG in "$DEVICE_CONFIG_DIR"/*.cfg; do
+		[ -f "$DEVICE_CFG" ] || continue
+
+		SYSTEM=$(basename "$DEVICE_CFG" .cfg)
+		CFG="$RA_CONFIG_DIR/$SYSTEM/$SYSTEM.cfg"
+		BACKUP_CFG="$CFG.$(GET_VAR "device" "board/name")"
+
+		if [ ! -f "$BACKUP_CFG" ]; then
+			cp -f "$CFG" "$BACKUP_CFG"
+			cp -f "$DEVICE_CFG" "$CFG"
+		fi
+	done
+fi
+
+# Copy Device Specific Deeplay-keys.cfg udev autoconfig
+RA_AUTO="/run/muos/storage/retroarch/autoconfig/udev/Deeplay-keys.cfg"
+if [ -f "$RA_AUTO" ]; then
+	rm -f "$RA_AUTO"
+	cp "$DEVICE_CONTROL_DIR/Deeplay-keys.cfg" "$RA_AUTO"
 fi

@@ -1,12 +1,12 @@
 #!/bin/sh
+# HELP: Clear Core Assignments
+# ICON: clear
 
 . /opt/muos/script/var/func.sh
 
-. /opt/muos/script/var/global/storage.sh
-
 pkill -STOP muxtask
 
-MUOS_CORE_DIR="$GC_STO_CONFIG/MUOS/info/core"
+MUOS_CORE_DIR="/run/muos/storage/info/core"
 
 echo "Removing all core assignments"
 rm -rf "${MUOS_CORE_DIR:?}"/*

@@ -1,15 +1,20 @@
 #!/bin/bash
+#
+# SPDX-License-Identifier: MIT
+#
 
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
 controlfolder="$XDG_DATA_HOME/PortMaster"
 
-if [ -d "${HOME}/.var/app/net.retrodeck.retrodeck/config/retrodeck/" ]; then
-  mkdir -p $controlfolder
+if [ -d "/app/bin/retrodeck.sh" ]; then
+  source /app/libexec/global.sh # loading the RetroDECK framework that even give access to variables such as roms_folder
+  directory="$roms_folder/portmaster"
   cp retrodeck/control.txt $controlfolder
 fi
 
 source $controlfolder/control.txt
+[ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
 get_controls
 
@@ -22,10 +27,8 @@ echo "Starting PortMaster."
 
 chmod -R +x .
 
-#check RetrodDECK installed and read location of roms folder
-if [[ -e "${HOME}/.var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.cfg" ]]; then
-  toolsfolderloc="${controlfolder/\/PortMaster/}"
-fi
+exec > >(tee "$controlfolder/log.txt") 2>&1
+source "$controlfolder/utils/pmsplash.txt"
 
 ## Autoinstallation Code
 # This will automatically install zips found within the PortMaster/autoinstall directory using harbourmaster
@@ -79,7 +82,7 @@ if [ -n "$AUTOINSTALL" ]; then
     fi
   fi
 
-  touch "$controlfolder/.muos-refresh"
+  touch "$controlfolder/.es-de-refresh"
 
   PortMasterDialog "messages_end"
   if [ -z "$GW" ]; then
@@ -94,7 +97,7 @@ fi
 
 rm -f "${controlfolder}/.pugwash-reboot"
 while true; do
-  ./pugwash $PORTMASTER_CMDS 2>&1 | tee -a ./log.txt
+  ./pugwash $PORTMASTER_CMDS
 
   if [ ! -f "${controlfolder}/.pugwash-reboot" ]; then
     break;
@@ -103,8 +106,14 @@ while true; do
   rm -f "${controlfolder}/.pugwash-reboot"
 done
 
+if [ -f "${controlfolder}/.es-de-refresh" ]; then
+  $ESUDO rm -f "${controlfolder}/.es-de-refresh"
+  if [[ "$portmaster_reload_esde" != "false" ]]; then
+    $ESUDO pkill -f es-de
+  fi
+fi
+
 unset LD_LIBRARY_PATH
 unset SDL_GAMECONTROLLERCONFIG
 
 printf "\033c"
-

@@ -1,11 +1,14 @@
 #!/bin/bash
+#
+# SPDX-License-Identifier: MIT
+#
+
+if [ -d "/mnt/SDCARD/Data/ports" ]; then
+    exit 0
+fi
 
 LASTPWD="$PWD"
 cd /mnt/SDCARD/
-
-if [ -d "Data/ports" ]; then
-    exit 0
-fi
 
 # Function to get the name of a directory with its original case sensitivity
 directory_name() {

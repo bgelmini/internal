@@ -4,23 +4,28 @@
 
 NAME=$1
 CORE=$2
-ROM=$3
+FILE=${3%/}
 
-export HOME=$(GET_VAR "device" "board/home")
+LOG_INFO "$0" 0 "Content Launch" "DETAIL"
+LOG_INFO "$0" 0 "NAME" "$NAME"
+LOG_INFO "$0" 0 "CORE" "$CORE"
+LOG_INFO "$0" 0 "FILE" "$FILE"
 
-export SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
-export SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
-export SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+HOME="$(GET_VAR "device" "board/home")"
+export HOME
+
+SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
+SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+export SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
 
 SET_VAR "system" "foreground_process" "drastic"
 
-EMUDIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic"
+EMUDIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/drastic-trngaje"
 
-chmod +x "$EMUDIR"/drastic
+chmod +x "$EMUDIR"/launch.sh
 cd "$EMUDIR" || exit
 
-HOME="$EMUDIR" SDL_ASSERT=always_ignore ./drastic "$ROM"
+HOME="$EMUDIR" SDL_ASSERT=always_ignore ./launch.sh "$FILE"
 
-unset SDL_HQ_SCALER
-unset SDL_ROTATION
-unset SDL_BLITTER_DISABLED
+unset SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED

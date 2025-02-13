@@ -1,15 +1,12 @@
 #!/bin/sh
 
-. /opt/muos/script/var/func.sh
+trap "killall mpv; exit 0" TERM
 
-MP3_DIR="/run/muos/storage/music"
-
-while true; do
-	MP3_FILES=$(find "$MP3_DIR" -maxdepth 1 -type f -name "*.mp3")
-
-	if [ -n "$MP3_FILES" ]; then
-		mpg123 -Z "$MP3_DIR"/*.mp3
+while :; do
+	BGM_FILE=$(find "$1" -maxdepth 1 -type f 2>/dev/null | shuf -n 1)
+	if [ -n "$BGM_FILE" ]; then
+		mpv --no-video "$BGM_FILE" >/dev/null 2>&1
+	else
+		sleep 1
 	fi
-
-	sleep 2
-done &
+done

@@ -4,33 +4,31 @@
 
 NAME=$1
 CORE=$2
-ROM=$3
+FILE=${3%/}
 
-export HOME=$(GET_VAR "device" "board/home")
+LOG_INFO "$0" 0 "Content Launch" "DETAIL"
+LOG_INFO "$0" 0 "NAME" "$NAME"
+LOG_INFO "$0" 0 "CORE" "$CORE"
+LOG_INFO "$0" 0 "FILE" "$FILE"
 
-export SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
-export SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
-export SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+HOME="$(GET_VAR "device" "board/home")"
+export HOME
 
-if grep -q 'PORT_32BIT="Y"' "$ROM"; then
-	killall -q "golden.sh" "pw-play"
-	echo "Switching to ALSA-only configuration..."
-	cp /etc/asound.conf /etc/asound.conf.bak
-	cp /etc/asound.conf.alsa /etc/asound.conf
-	echo "alsa" >"$AUDIO_SRC"
-	amixer -c 0 sset "digital volume" 75%
+SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
+SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+export SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
+
+IS_32BIT=0
+if grep -q '^[[:space:]]*[^#]*PORT_32BIT="Y"' "$FILE"; then
+	IS_32BIT=1
 fi
 
-"$ROM"
-
-unset SDL_HQ_SCALER
-unset SDL_ROTATION
-unset SDL_BLITTER_DISABLED
-
-if [ -f /etc/asound.conf.bak ]; then
-	mv /etc/asound.conf.bak /etc/asound.conf
+if [ $IS_32BIT -eq 1 ]; then
+	export PIPEWIRE_MODULE_DIR="/usr/lib32/pipewire-0.3"
+	export SPA_PLUGIN_DIR="/usr/lib32/spa-0.2"
 fi
 
-echo "pipewire" >"$AUDIO_SRC"
-amixer -c 0 sset "digital volume" 100%
-/opt/muos/script/mux/golden.sh &
+"$FILE"
+
+unset SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED PIPEWIRE_MODULE_DIR SPA_PLUGIN_DIR

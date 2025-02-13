@@ -1,14 +1,13 @@
 #!/bin/sh
+# HELP: Simple Terminal
+# ICON: terminal
 
 . /opt/muos/script/var/func.sh
 
-if pgrep -f "playbgm.sh" >/dev/null; then
-	killall -q "playbgm.sh" "mpg123"
-fi
-
 echo app >/tmp/act_go
 
-export SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+export SDL_HQ_SCALER
 
 TERM_DIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/application/.terminal"
 

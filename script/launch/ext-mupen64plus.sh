@@ -4,24 +4,24 @@
 
 NAME=$1
 CORE=$2
-ROM=$3
+FILE=${3%/}
 
-export HOME=$(GET_VAR "device" "board/home")
+LOG_INFO "$0" 0 "Content Launch" "DETAIL"
+LOG_INFO "$0" 0 "NAME" "$NAME"
+LOG_INFO "$0" 0 "CORE" "$CORE"
+LOG_INFO "$0" 0 "FILE" "$FILE"
 
-export SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
-export SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
-export SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+HOME="$(GET_VAR "device" "board/home")"
+export HOME
+
+SDL_HQ_SCALER="$(GET_VAR "device" "sdl/scaler")"
+SDL_ROTATION="$(GET_VAR "device" "sdl/rotation")"
+SDL_BLITTER_DISABLED="$(GET_VAR "device" "sdl/blitter_disabled")"
+export SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
 
 SET_VAR "system" "foreground_process" "mupen64plus"
 
-case "$(GET_VAR "device" "board/name")" in
-	RG28XX)
-		FB_SWITCH 240 320 32
-		;;
-	*)
-		FB_SWITCH 320 240 32
-		;;
-esac
+FB_SWITCH 320 240 32
 
 EMUDIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/emulator/mupen64plus"
 MP64_CFG="$EMUDIR/mupen64plus.cfg"
@@ -36,46 +36,30 @@ elif [ "$CORE" = "ext-mupen64plus-rice" ]; then
 	cp -f "$RICE_CFG" "$MP64_CFG"
 fi
 
-# Update paths in config based on storage preference.
-sed -i \
-	-e "s|^SaveSRAMPath = .*|SaveSRAMPath = \"/run/muos/storage/save/file/Mupen64Plus\"|" \
-	-e "s|^SaveStatePath = .*|SaveStatePath = \"/run/muos/storage/save/state/Mupen64Plus\"|" \
-	-e "s|^ScreenshotPath = .*|ScreenshotPath = \"/run/muos/storage/screenshot\"|" \
-	"$MP64_CFG"
-
 chmod +x "$EMUDIR"/mupen64plus
 cd "$EMUDIR" || exit
 
-# Decompress zipped ROMs since the emulator doesn't natively support them.
-case "$ROM" in *.zip)
+# Decompress zipped files since the emulator doesn't natively support them.
+case "$FILE" in *.zip)
 	TMPDIR="$(mktemp -d)"
-	unzip -q "$ROM" -d "$TMPDIR"
+	unzip -q "$FILE" -d "$TMPDIR"
 	# Pick first file with a supported extension.
 	for TMPFILE in "$TMPDIR"/*; do
-		case "$TMPFILE" in *.n64|*.v64|*.z64)
-			ROM="$TMPFILE"
+		case "$TMPFILE" in *.n64 | *.v64 | *.z64)
+			FILE="$TMPFILE"
 			break
-		;; esac
+			;;
+		esac
 	done
-;; esac
-
-HOME="$EMUDIR" SDL_ASSERT=always_ignore ./mupen64plus --corelib ./libmupen64plus.so.2.0.0 --configdir . "$ROM"
-
-# Clean up temp files if we unzipped the ROM.
-if [ -n "$TMPDIR" ]; then
-	rm -r "$TMPDIR"
-fi
-
-case "$(GET_VAR "device" "board/name")" in
-	RG*)
-		echo 0 > "/sys/class/power_supply/axp2202-battery/nds_pwrkey"
-		FB_SWITCH "$(GET_VAR "device" "screen/width")" "$(GET_VAR "device" "screen/height")" 32
-		;;
-	*)
-		FB_SWITCH "$(GET_VAR "device" "screen/width")" "$(GET_VAR "device" "screen/height")" 32
-		;;
+	;;
 esac
 
-unset SDL_HQ_SCALER
-unset SDL_ROTATION
-unset SDL_BLITTER_DISABLED
+HOME="$EMUDIR" SDL_ASSERT=always_ignore ./mupen64plus --corelib ./libmupen64plus.so.2.0.0 --configdir . "$FILE"
+
+# Clean up temp files if we unzipped the file
+[ -n "$TMPDIR" ] && rm -r "$TMPDIR"
+
+[ "$(GET_VAR "global" "settings/hdmi/enabled")" -eq 1 ] && SCREEN_TYPE="external" || SCREEN_TYPE="internal"
+FB_SWITCH "$(GET_VAR "device" "screen/$SCREEN_TYPE/width")" "$(GET_VAR "device" "screen/$SCREEN_TYPE/height")" 32
+
+unset SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
